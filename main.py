@@ -75,6 +75,7 @@ def read_supertrend(response: Response):
     supertrend_data = sp_client.supertrend(df)
     # Convert to JSON to pass back
     # Q: Converting to JSON necessary?
+    # A: I believe so otherwise it's a Pandas DF
     supertrend_json = pd.DataFrame.to_json(supertrend_data)
 
     response.body = {"data": supertrend_json}

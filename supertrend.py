@@ -27,32 +27,59 @@ import config
 # Show max rows in DF
 # pd.set_option("display.max_rows", None)
 
-# FIXME Get the Kraken connection working.
-st.write("API_KEY: ", config.KRAKEN_API_KEY)
-st.write("API_KEY_DESC: ", config.KRAKEN_API_KEY_DESCRIPTION)
-st.write("PRIVATE_KEY: ", config.KRAKEN_PRIVATE_KEY)
-st.write("API_SECRET: ", config.KRAKEN_API_SECRET)
+# Get the Kraken connection working.
+# st.write("API_KEY: ", config.KRAKEN_API_KEY)
+# st.write("API_KEY_DESC: ", config.KRAKEN_API_KEY_DESCRIPTION)
+# st.write("PRIVATE_KEY: ", config.KRAKEN_PRIVATE_KEY)
+# st.write("API_SECRET: ", config.KRAKEN_API_SECRET)
 
-# exchange = ccxt.kraken(
-#     {"apiKey": config.KRAKEN_API_KEY, "secret": config.KRAKEN_PRIVATE_KEY}
-# )
+EXCHANGE = ccxt.kraken(
+    {"apiKey": config.KRAKEN_API_KEY, "secret": config.KRAKEN_PRIVATE_KEY}
+)
 
-# TODO Test out kraken exchange connection
-# print(exchange.fetch_balance())
-st.write(exchange.fetch_balance())
+# Test out kraken exchange connection
+print(EXCHANGE.fetch_balance())
+# st.write(
+#     EXCHANGE.fetch_balance()
+# )  # { "info": { "result": { "XXBT": ,"ADA": , "DOT": }}}
+# st.write(EXCHANGE.fetch_my_trades("ADA"))  # PermissionError
+# st.write(EXCHANGE.fetch_my_trades())  # PermissionError
+# st.write(EXCHANGE.fetch_my_trades("ADA/USD"))  # PermissionError
+# st.write(EXCHANGE.fetch_my_trades("ADA-USD"))  # PermissionError
+
+
+def has_position(symbol: str) -> bool:
+    """Fetches exchange balance and checks whether has position for symbol"""
+    exchange_balance = EXCHANGE.fetch_balance()["total"]
+    # print(symbol)  # ADA/USD
+    print(
+        f"exchange_balance: {exchange_balance}"
+    )  # exchange_balance: {'BTC': 0.0043640575, 'ADA': 400.0, 'DOT': 8.0}
+    # print(type(exchange_balance))  # dict
+    # Grab the the first part of symbol e.g., "ETH/USD" => "ETH"
+    balance_ticker = symbol.split("/")[0]
+    print(balance_ticker)
+
+    # Check whether we already have a position with this symbol
+    if balance_ticker in exchange_balance:
+        print(f"Has position for {balance_ticker}: {exchange_balance[balance_ticker]}")
+        # Fetch ALL Exchange trades for this symbol (not mine!)
+        # print(f"Recent trades for {symbol}: {EXCHANGE.fetch_trades(symbol)}")  # Works
+        # Fetch MY trades for this symbol
+        # print(f"My recent trades for {symbol}: {EXCHANGE.fetch_my_trades(symbol)}")  # Error
+        # print(f"Closed orders for {symbol}: {EXCHANGE.fetch_closed_orders(symbol)}")  # Error
+        # print(f"Fetch positions for {symbol}: {EXCHANGE.fetch_closed_orders([symbol])}")  # Error
+        return True
+    else:
+        print(f"No position for {balance_ticker}")
+        return False
+
 
 def fetch_data(symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
     """Fetch symbol data on schedule from kraken and return dataframe"""
-    # 1. Grab our data
-    exchange = ccxt.kraken(
-        {"apiKey": config.KRAKEN_API_KEY, "secret": config.KRAKEN_PRIVATE_KEY}
-    )
-
-    # TODO Test out kraken exchange connection
-    print(exchange.fetch_balance())
 
     # open high low close data
-    bars = exchange.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
+    bars = EXCHANGE.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
 
     # Create a DF but only with completed timestamps (ie exclude last row)
     data = pd.DataFrame(
@@ -157,21 +184,21 @@ def compute_basic_lower_band(data: pd.DataFrame, multiplier: int = 3):
 # return data
 
 
-def compute_final_upper_band(data: pd.DataFrame):
-    """
-    FINAL UPPER BAND CALCULATION:
-    if((Current basic upper band < Previous final upper band)
-    and (Previous close < Previous final lower band))
-    then (Current basic lower band)
-    else (Previous final lower band)
-    """
-    # Q: How to track current/previous state?
-    # Use .apply()?
-    # current_index = 1
-    # previous_index = current_index - 1
+# def compute_final_upper_band(data: pd.DataFrame):
+#     """
+#     FINAL UPPER BAND CALCULATION:
+#     if((Current basic upper band < Previous final upper band)
+#     and (Previous close < Previous final lower band))
+#     then (Current basic lower band)
+#     else (Previous final lower band)
+#     """
+#     # Q: How to track current/previous state?
+#     # Use .apply()?
+#     # current_index = 1
+#     # previous_index = current_index - 1
 
-    # current_basic_upper_band = df['ba']
-    pass
+#     # current_basic_upper_band = df['ba']
+#     pass
 
 
 def compute_final_lower_band(data: pd.DataFrame):
@@ -339,6 +366,10 @@ def compute_trend_and_final_bands(data: pd.DataFrame):
 
 def find_buy_sell_timestamps(data: pd.DataFrame, show_buy_sell_timestamps: bool = True):
     """Appends new column to dataframe specifying buy or sell timestamps"""
+    # TODO Execute the actual buy order on exchange
+    # TODO Need to implement some in_position logic based on balance
+    # and whether recently made a buy/sell trade. Could maybe count trades
+    # or reference transaction history?
     # Q: Initialize columns?
     # A: Doesn't seem to work...
     # data["buy"] = None
@@ -351,7 +382,7 @@ def find_buy_sell_timestamps(data: pd.DataFrame, show_buy_sell_timestamps: bool 
     # Then: if not df['in_uptrend'][previous_row_index] and df['in_uptrend'][last_row_index]...
     data["match"] = data.in_uptrend.ne(data.in_uptrend.shift())
 
-    # FIXME Want to get the dates and the trade recommendation when trend swap
+    # Want to get the dates and the trade recommendation when trend swap
     def is_buy_or_sell(row):
         if row["match"] is True and row["in_uptrend"] is True:
             # Buy
@@ -374,7 +405,7 @@ def find_buy_sell_timestamps(data: pd.DataFrame, show_buy_sell_timestamps: bool 
     buy_mask = data["trade"] == "Buy"
     sell_mask = data["trade"] == "Sell"
     # NOTE Don't have to do any fancy loops just use the masks!
-    # FIXME Need to remove the 0 index for buys
+    # Need to remove the 0 index for buys
     buys = data[buy_mask].iloc[1:, :]
     sells = data[sell_mask]
     # Timestamps only
@@ -435,7 +466,7 @@ def supertrend(
 
 # 1. Select our data
 st.title("Supertrend")
-available_symbols = ["BTC/USDT", "ETH/USDT", "ADA/USDT"]
+available_symbols = ["BTC/USD", "ETH/USD", "ADA/USD"]
 # NOTE Could provide default symbol but it will autorun. Leaving empty for now.
 # selected_symbols = st.multiselect("Select the symbol(s): ", options=available_symbols, default=None)
 # schedule_frequency = st.slider("Re-run frequency (seconds):", 10, 300, 10)
@@ -445,15 +476,21 @@ available_symbols = ["BTC/USDT", "ETH/USDT", "ADA/USDT"]
 # 2. Fetch data, build dataframes, and store df for each symbol
 # Q: Do I wrap all this into a run_bot function?
 # Q: Do I need to await the fetch_data() and make this async?
+# A: I tried adding async but gets complicated with async + Schedule
 def run_bot(symbols):
     """Main program function to fetch data and compute supertrend"""
+
+    # Loop through symbols to compute supertrend
     for symbol in symbols:
         st.subheader(f"{symbol} Supertrend")
 
+        # 1. Fetch exchange balance and determine has position for symbol
+        # # Fetch current balance on exchange
+        # st.subheader("Current Balance:")
+        # st.write(EXCHANGE.fetch_balance()["total"])
+        in_position = has_position(symbol)
+
         st.write(
-            f"Fetching data for {symbol} at {datetime.datetime.now(datetime.timezone.utc)}"
-        )
-        print(
             f"Fetching data for {symbol} at {datetime.datetime.now(datetime.timezone.utc)}"
         )
         df = fetch_data(symbol=symbol, timeframe="1m", limit=100)
@@ -476,7 +513,7 @@ def run_bot(symbols):
 # 3. Run this main() on a schedule frequency based on st slider
 # print(schedule.jobs)
 # Run once without scheduler
-run_bot(symbols=["ETH/USDT"])
+# run_bot(symbols=["ADA/USDT"])
 
 
 # FIXME Frequency doesn't seem to be working...
@@ -484,15 +521,16 @@ run_bot(symbols=["ETH/USDT"])
 # schedule.every(30).seconds.do(main)
 # schedule.every().minutes.do(main)
 # schedule.every(10).seconds.do(fetch_data, symbol="ETH/USDT", timeframe="1m", limit=10)
-# schedule.every(20).seconds.do(run_bot, symbols=["ETH/USDT"])  # WORKS!
+# schedule.every(20).seconds.do(run_bot, symbols=["ADA/USDT"])  # WORKS!
 # schedule.every(20).seconds.do(run_bot, symbols=symbols)  # Runs ETH 3 times BTC once...
 # WITHOUT using the st.multiselect, so passing symbols manually:
 # schedule.every(20).seconds.do(run_bot, symbols=["BTC/USDT"])
+schedule.every(20).seconds.do(run_bot, symbols=["ADA/USD"])  # WORKS!
 
 # Clear all scheduler jobs in case of redundancies
-schedule.clear()
+# schedule.clear()
 
-# while True:
-#     schedule.run_pending()
-#     print("Scheduler jobs: ", schedule.jobs)  # List[Job]
-#     time.sleep(1)
+while True:
+    schedule.run_pending()
+    # print("Scheduler jobs: ", schedule.jobs)  # List[Job]
+    time.sleep(1)
